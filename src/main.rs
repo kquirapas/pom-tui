@@ -1,5 +1,5 @@
 use crossterm::{
-    event::{self, poll, read, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
+    event::{poll, read, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -8,11 +8,11 @@ use tui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
-    text::{Span, Spans, Text},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    text::{Span, Text},
+    widgets::{Block, Borders, Paragraph},
     Frame, Terminal,
 };
-use chrono::{self, DateTime, NaiveTime, Utc};
+use chrono::{self, Utc};
 // use unicode_width::UnicodeWidthStr;
 
 enum Modes {
@@ -64,6 +64,7 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
     loop {
         terminal.draw(|f| ui(f, &app))?;
 
+        // non-blocking event read
         if poll(Duration::from_millis(100))? {
             if let Event::Key(key) = read()? {
                 match app.mode {
@@ -80,7 +81,8 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                         _ => {}
                     },
                     Modes::Running => if key.code == KeyCode::Esc {
-                        app.mode = Modes::Input
+                        app.elapsed = 0;
+                        app.mode = Modes::Input;
                     }
                 }
             }
@@ -88,6 +90,9 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
 
         if let Modes::Running = app.mode {
             app.elapsed = (Utc::now().time() - start).num_seconds();
+            if (app.elapsed >= app.time) {
+                app.elapsed = app.time;
+            }
         }
     }
 }
@@ -117,17 +122,20 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &App) {
 
 
     let time_left = app.time - app.elapsed;
-    log(f, format!("{} - {} = {}", app.time, app.elapsed, time_left), chunks[2]);
 
     let (msg, style) = match app.mode {
         Modes::Input => (
-                Span::raw(time_left.to_string()),
-                Style::default()
-            ),
-        Modes::Running => (
-                Span::styled(time_left.to_string(), Style::default().fg(Color::Green)),
+            Span::raw(time_left.to_string()),
+            Style::default()
+        ),
+        Modes::Running => {
+            let color = if time_left == 0 { Color::Red } else { Color::Green };
+
+            (
+                Span::styled(time_left.to_string(), Style::default().fg(color)),
                 Style::default().add_modifier(Modifier::RAPID_BLINK)
-        )
+            )
+        }
     };
 
     let instruction_widget = Paragraph::new(Text::from(Span::raw(match app.mode {
